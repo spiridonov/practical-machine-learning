@@ -1,0 +1,145 @@
+<!-- Make sure that the knitr package is installed and loaded. -->
+<!-- For more info on the package options see http://yihui.name/knitr/options -->
+
+<!-- Replace below with the title of your project -->
+
+Practical Machine Learning: Course Project
+======================================================================
+
+<!-- In the remainder of the document, add R code chunks as needed -->
+
+#### _Stanislav Spiridonov_
+
+#### _25.01.2015_
+
+### Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har) (see the section on the Weight Lifting Exercise Dataset). 
+
+### Prepearing
+
+In order to utilize all available cores for parallel processing we will use `doMC` package:
+
+```{r}
+library(caret)
+library(doMC)
+registerDoMC(cores = 5)
+
+```
+
+Programming assignment should be submited as a set of 20 separate files, so this helper will be useful:
+
+```{r}
+pml_write_files <- function(x) {
+  n <- length(x)
+  for(i in 1:n){
+    filename <- paste0("problem_id_",i,".txt")
+    write.table(x[i], file=filename, quote=FALSE, row.names=FALSE, col.names=FALSE)
+  }
+}
+```
+
+### Data
+
+```{r}
+training = read.csv("pml-training.csv")
+testing = read.csv("pml-testing.csv")
+```
+
+There are 160 variables and 19622 observations. Each observation is classified with `classe` variable, which has 5 levels: A, B, C, D, E.
+
+Inspection of the data showed that there are many columns mostly with NA and empty values. Also first seven variables are not related to the exercise, as they are related to person, timestamp, etc. We should clean these variables. Since we do this cleaning in training data set, we should do the same for testing data set:
+
+```{r}
+lotOfNAs <- function(vector) {
+  if(sum(is.na(vector)) / length(vector) > 0.9) {
+    res <- TRUE                        
+  } else {                                      
+    res <- FALSE
+  }
+  invisible(res)
+}
+
+sanitizeData <- function(data) {
+  result <- data[ , -(1:7)]
+  nums <- sapply(result, is.numeric)
+  result <- result[ , nums]  
+  
+  varsWith90NAs <- sapply(result, lotOfNAs)
+  result <- result[ , !varsWith90NAs]
+  
+  invisible(result)
+}
+```
+
+Now we can load, clean up data and create 90% partitions for training and testing datasets:
+
+```{r}
+sanitizedTraining <- sanitizeData(training)
+sanitizedTraining$classe <- training$classe
+
+subsetTrainingIndex <- createDataPartition(sanitizedTraining$classe, p = 0.90, list = FALSE)
+subsetTraining <- sanitizedTraining[subsetTrainingIndex, ]
+subsetTesting <- sanitizedTraining[-subsetTrainingIndex, ]
+```
+
+### Model Training
+
+After cleaning datasets there are still 53 variables. Training model with this amount of data will take too much time. To avoid that we will pre-process training data using PCA with 5 components. For training we will use Random Forest method with 5-fold cross validation:
+
+```{r}
+last <- ncol(subsetTraining)
+pca <- preProcess(subsetTraining[ , -last], method = "pca", pcaComp = 5)
+trainPC <- predict(pca, subsetTraining[ , -last])
+tc = trainControl(allowParallel = TRUE, method = "cv", number = 5)
+modelFit <- train(subsetTraining$classe ~ ., method = "rf", trainControl = tc, data = trainPC)
+```
+
+Predicting on the testing test shows good results. Total accuracy is 86%:
+
+```{r}
+last <- ncol(subsetTesting)
+testPC <- predict(pca, subsetTesting[ , -last])
+prediction <- predict(modelFit, testPC)
+confusionMatrix(prediction, subsetTesting$classe)
+```
+
+```
+          Reference
+Prediction   A   B   C   D   E
+         A 512  26  13  11  14
+         B  11 311  18   8  20
+         C  21  19 280  18  11
+         D   6  11  20 277  14
+         E   8  12  11   7 301
+
+Overall Statistics
+
+               Accuracy : 0.8577
+                 95% CI : (0.8414, 0.8728)
+    No Information Rate : 0.2847
+    P-Value [Acc > NIR] : < 2e-16
+
+                  Kappa : 0.8198
+ Mcnemar's Test P-Value : 0.09936
+```
+
+### Model Testing
+
+Our task is to predict 20 examples:
+
+```{r}
+last <- ncol(testing)
+valid <- sanitizeData(testing[ , -last])
+validPC <- predict(pca, valid)
+pred_valid <- predict(modelFit, validPC)
+
+pml_write_files(pred_valid)
+```
+
+All 20 submitted files were correct, so the accuracy was 100%:
+
+```
+[1] B A B A A E D B A A B C B A E E A B B B
+Levels: A B C D E
+```
