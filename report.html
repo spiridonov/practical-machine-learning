@@ -121,7 +121,7 @@ sanitizeData &lt;- function(data) {
 <pre class="r"><code>sanitizedTraining &lt;- sanitizeData(training)
 sanitizedTraining$classe &lt;- training$classe
 
-subsetTrainingIndex &lt;- createDataPartition(sanitizedTraining$classe, p = 0.01, list = FALSE)
+subsetTrainingIndex &lt;- createDataPartition(sanitizedTraining$classe, p = 0.90, list = FALSE)
 subsetTraining &lt;- sanitizedTraining[subsetTrainingIndex, ]
 subsetTesting &lt;- sanitizedTraining[-subsetTrainingIndex, ]</code></pre>
 </div>
